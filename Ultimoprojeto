@@ -1,0 +1,135 @@
+from datetime import datetime, timezone
+from pymongo.errors import DuplicateKeyError
+from conexao import banco
+
+alunos = banco["alunos_p01"]
+
+# Garante que não existam duas matrículas iguais
+alunos.create_index("matricula", unique=True)
+
+
+def validar_matricula(matricula: str):
+    """Desafio 1: Valida se a matrícula contém apenas dígitos e tamanho adequado (ex: 4 a 10 dígitos)."""
+    return matricula.isdigit() and 4 <= len(matricula) <= 10
+
+
+def formatar_data(dt: datetime | None):
+    if not dt:
+        return "N/D"
+    return dt.astimezone().strftime("%d/%m/%Y %H:%M:%S")
+
+
+while True:
+    print("\n" + "=" * 45)
+    print("SISTEMA DE CADASTRO DE ALUNOS (p01)")
+    print("=" * 45)
+    print("[1] Cadastrar aluno")
+    print("[2] Listar todos os alunos")
+    print("[3] Buscar alunos por curso (Desafio 2)")
+    print("[4] Alterar curso")
+    print("[5] Excluir aluno")
+    print("[0] Sair")
+    print("-" * 45)
+
+    opcao = input("Escolha uma opção: ").strip()
+
+    if opcao == "1":
+        matricula = input("Matrícula (apenas números, 4-10 dígitos): ").strip()
+        nome = input("Nome completo: ").strip()
+        curso = input("Curso: ").strip()
+
+        if not all([matricula, nome, curso]):
+            print("\nErro: Todos os campos são obrigatórios.")
+            continue
+
+        if not validar_matricula(matricula):
+            print("\nErro: Matrícula inválida! Digite apenas números (entre 4 e 10 dígitos).")
+            continue
+
+        novo_aluno = {
+            "matricula": matricula,
+            "nome": nome,
+            "curso": curso,
+            "criado_em": datetime.now(timezone.utc)  # Desafio 3: Data de cadastro
+        }
+
+        try:
+            alunos.insert_one(novo_aluno)
+            print(f"\nAluno '{nome}' cadastrado com sucesso!")
+        except DuplicateKeyError:
+            print(f"\nErro: A matrícula '{matricula}' já está cadastrada.")
+
+    elif opcao == "2":
+        cursor = alunos.find({}, {"_id": 0}).sort("nome", 1)
+        total = alunos.count_documents({})
+
+        if total == 0:
+            print("\nNenhum aluno cadastrado.")
+            continue
+
+        print(f"\nTotal de registros: {total}\n")
+        for doc in cursor:
+            data_str = formatar_data(doc.get("criado_em"))
+            print(f"• Matrícula: {doc['matricula']:<10} | Nome: {doc['nome']:<25} | Curso: {doc['curso']:<15} | Cadastrado em: {data_str}")
+
+    elif opcao == "3":
+        # Desafio 2: Busca por curso com correspondência insensível a maiúsculas/minúsculas
+        termo = input("Digite o nome (ou parte) do curso: ").strip()
+        if not termo:
+            print("\nO termo de busca não pode ser vazio.")
+            continue
+
+        filtro = {"curso": {"$regex": termo, "$options": "i"}}
+        resultados = list(alunos.find(filtro, {"_id": 0}).sort("nome", 1))
+
+        if not resultados:
+            print(f"\nNenhum aluno encontrado para o curso correspondente a '{termo}'.")
+        else:
+            print(f"\nAlunos encontrados ({len(resultados)}):")
+            for doc in resultados:
+                data_str = formatar_data(doc.get("criado_em"))
+                print(f"• [{doc['matricula']}] {doc['nome']} - {doc['curso']} (desde {data_str})")
+
+    elif opcao == "4":
+        matricula = input("Digite a matrícula do aluno a alterar: ").strip()
+        aluno_existente = alunos.find_one({"matricula": matricula})
+
+        if not aluno_existente:
+            print("\nAluno não encontrado.")
+            continue
+
+        print(f"Aluno: {aluno_existente['nome']} | Curso atual: {aluno_existente['curso']}")
+        novo_curso = input("Novo curso: ").strip()
+
+        if not novo_curso:
+            print("\nOperação cancelada: O curso não pode ser vazio.")
+            continue
+
+        resultado = alunos.update_one(
+            {"matricula": matricula},
+            {"$set": {"curso": novo_curso, "atualizado_em": datetime.now(timezone.utc)}}
+        )
+        if resultado.modified_count:
+            print("\nCurso atualizado com sucesso!")
+        else:
+            print("\nNenhuma alteração realizada (o curso digitado é o mesmo atual).")
+
+    elif opcao == "5":
+        matricula = input("Digite a matrícula a excluir: ").strip()
+        confirmacao = input(f"Tem certeza que deseja excluir a matrícula {matricula}? [s/N]: ").strip().lower()
+
+        if confirmacao == "s":
+            resultado = alunos.delete_one({"matricula": matricula})
+            if resultado.deleted_count:
+                print("\nAluno removido com sucesso!")
+            else:
+                print("\nAluno não encontrado.")
+        else:
+            print("\nExclusão cancelada.")
+
+    elif opcao == "0":
+        print("\nEncerrando o programa...")
+        break
+
+    else:
+        print("\nOpção inválida! Escolha um valor do menu.")
